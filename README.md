@@ -26,9 +26,8 @@ Download the application and provide settings specific to your instance of the A
     ```
 2. Initialize the project:
     ```shell
-    cd {project_dir}/backend
     npm init 
-
+    
     cd {project_dir}/frontend
     npm init 
     ```
