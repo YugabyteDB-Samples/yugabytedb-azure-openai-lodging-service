@@ -14,7 +14,7 @@ The app provides lodging recommendations for travelers going to San Francisco. I
 * A Microsoft Azure subscription.
 * An Azure OpenAI Service resource with GPT and Embedding models deployed. For more information about model deployment, see the [resource deployment guide](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal).
 * The latest [Node.js version](https://github.com/nodejs/release#release-schedule).
-* A YugabyteDB cluster of version [2.19.2 or later](https://download.yugabyte.com/).
+* A YugabyteDB cluster of version [v2.25+](https://download.yugabyte.com/).
 
 ## Download Application and Provide Azure OpenAI Settings
 
@@ -47,28 +47,28 @@ Start a YugabyteDB isntance of version 2.19.2 or later:
 ```shell
 mkdir ~/yb_docker_data
 
-docker network create custom-network
+docker network create yb-network
 
-docker run -d --name yugabytedb_node1 --net custom-network \
+docker run -d --name ybnode1 --hostname ybnode1 --net yb-network \
     -p 15433:15433 -p 7001:7000 -p 9001:9000 -p 5433:5433 \
     -v ~/yb_docker_data/node1:/home/yugabyte/yb_data --restart unless-stopped \
-    yugabytedb/yugabyte:2.19.2.0-b121 \
+    yugabytedb/yugabyte:2.25.2.0-b359 \
     bin/yugabyted start \
-    --base_dir=/home/yugabyte/yb_data --daemon=false
+    --base_dir=/home/yugabyte/yb_data --background=false
 
-docker run -d --name yugabytedb_node2 --net custom-network \
+docker run -d --name ybnode2 --hostname ybnode2  --net yb-network \
     -p 15434:15433 -p 7002:7000 -p 9002:9000 -p 5434:5433 \
     -v ~/yb_docker_data/node2:/home/yugabyte/yb_data --restart unless-stopped \
-    yugabytedb/yugabyte:2.19.2.0-b121 \
-    bin/yugabyted start --join=yugabytedb_node1 \
-    --base_dir=/home/yugabyte/yb_data --daemon=false
+    yugabytedb/yugabyte:2.25.2.0-b359 \
+    bin/yugabyted start --join=ybnode1 \
+    --base_dir=/home/yugabyte/yb_data --background=false
     
-docker run -d --name yugabytedb_node3 --net custom-network \
+docker run -d --name ybnode3 --hostname ybnode3 --net yb-network \
     -p 15435:15433 -p 7003:7000 -p 9003:9000 -p 5435:5433 \
     -v ~/yb_docker_data/node3:/home/yugabyte/yb_data --restart unless-stopped \
-    yugabytedb/yugabyte:2.19.2.0-b121 \
-    bin/yugabyted start --join=yugabytedb_node1 \
-    --base_dir=/home/yugabyte/yb_data --daemon=false
+    yugabytedb/yugabyte:2.25.2.0-b359 \
+    bin/yugabyted start --join=ybnode1 \
+    --base_dir=/home/yugabyte/yb_data --background=false
 ```
 
 The database connectivity settings are provided in the `{project_dir}/application.properties.ini` file and do not need to be changed if you started the cluster with the command above:
@@ -83,18 +83,19 @@ DATABASE_PASSWORD=yugabyte
 Next, load the sample Airbnb data set for the properties in San Francisco:
 1. Create the original schema:
     ```shell
-    psql -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte {project_dir}/sql/0_airbnb_listings.sql
+    ./bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -d yugabyte -f {project_dir}/sql/0_airbnb_listings.sql
     ```
 
 2. Load the data:
     ```shell
-    psql -h 127.0.0.1 -p 5433 -U yugabyte
-    \copy airbnb_listing from '{project_dir}/sql/sf_airbnb_listings.csv' DELIMITER ',' CSV HEADER;
+    ./bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -c "\copy airbnb_listing from '{project_dir}/sql/sf_airbnb_listings.csv' DELIMITER ',' CSV HEADER;"
     ```
-3. Execute the following script to enable the pgvector extension and add the `description_embedding` column of the vector type:
+3. Execute the following script to enable the pgvector extension, add the `description_embedding` column of the vector type and create index:
     ```shell
-    \i {project_dir}/sql/1_airbnb_embeddings.sql
+    ./bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -c "\i {project_dir}/sql/1_airbnb_embeddings.sql"
     ```
+    The search speed gets increased by using [vector indexing](https://docs.yugabyte.com/preview/explore/ysql-language-features/pg-extensions/extension-pgvector/#vector-indexing). YugabyteDB currently supports the Hierarchical Navigable Small World (HNSW) index type. This application uses cosine distance for indexing, as the backend query is using cosine similarity search.
+
 ## Generate Embeddings for Airbnb Listing Descriptions
 
 Airbnb properties provide a detailed property description (rooms number, amenities, location and other perks) in the `description` column. That information is a perfect fit for the similarity search against user prompts. However, the text data of the `description` column needs to be transformed into a vectorized representation.
@@ -124,7 +125,7 @@ Finished generating embeddings for 7551 rows
 2. Start the React frontend:
     ```shell
     cd {project_dir}/backend
-    npm start
+    DANGEROUSLY_DISABLE_HOST_CHECK=true npm start
     ```
 
 3. Access the application's user interface at:
